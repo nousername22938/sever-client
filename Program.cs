@@ -1,67 +1,66 @@
-﻿//Sever
+//Client
 using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Server
+namespace Client
 {
     class Program
     {
         static NetworkStream stream;
         static TcpClient client;
         static Thread thread;
-        static byte[] aeskey;
-        static byte[] aesiv;
+        static byte[] aeskey = GenerateAESkey(256);
+        static byte[] aesiv = GenerateAESiv();
         static void Main(string[] args)
         {
-            IPAddress iPAddress = IPAddress.Any;
-            var server = new TcpListener(iPAddress, 180);
-            var server2 = new TcpListener(iPAddress, 5555);
+
             try
             {
-                TcpListener keyIVListener = new TcpListener(IPAddress.Any, 5555);
-                keyIVListener.Start();
-                Console.WriteLine("Listening for key and IV on port 5555...");
-
-                // Accept a single connection for receiving the AES key and IV
-                TcpClient keyIVClient = keyIVListener.AcceptTcpClient();
-                Console.WriteLine("Client connected to port 5555");
-
-                // Handle receiving the AES key and IV
-                HandleAESKeyIV(keyIVClient);
-
-                // Close the connection for receiving the AES key and IV
-                keyIVClient.Close();
-                Console.WriteLine("Connection to port 5555 closed.");
-                server.Start();
-                Console.WriteLine("Server started");
-                client = server.AcceptTcpClient();
-                stream = client.GetStream();
-                Console.WriteLine("Client connected");
-                thread = new Thread(receive);
-                thread.Start();
-                Console.WriteLine("You can begin sending messages");
-                while (true)
+                using (TcpClient client2 = new TcpClient())
                 {
-                    Console.Write("$ ");
-                    byte[] buffer = new byte[1024];
-                    //Console.Write("enter your message here : ");
-                    string message = Console.ReadLine();
-                    if (string.IsNullOrEmpty(message))
+                    client2.Connect("127.0.0.1", 5555);
+                    NetworkStream stream2 = client2.GetStream();
+                    stream2.Write(aeskey, 0, aeskey.Length);
+                    stream2.Write(aesiv, 0, aesiv.Length);
+                    Console.WriteLine("AES key and IV sent to server.");
+
+                    // Close the connection
+                    client2.Close();
+                    Console.WriteLine("Connection to port 5555 closed.");
+                }
+                using (client = new TcpClient())
+                {
+                    client.Connect("127.0.0.1", 180);
+                    Console.WriteLine("Connected to server : 127.0.0.1");
+                    stream = client.GetStream();
+                    Console.WriteLine("Client connected");
+                    thread = new Thread(receive);
+                    thread.Start();
+                    Console.WriteLine("You can begin sending messages");
+                    while (true)
                     {
-                        continue;
+                        Console.Write("$ ");
+                        byte[] buffer = new byte[1024];
+                        //Console.Write("enter your message here : ");
+                        string message = Console.ReadLine();
+                        if (string.IsNullOrEmpty(message))
+                        {
+                            continue;
+                        }
+                        buffer = Encoding.UTF8.GetBytes(message);
+                        byte[] bytes = encryption(buffer, aeskey, aesiv);
+                        stream.Write(bytes, 0, bytes.Length);
                     }
-                    buffer = Encoding.UTF8.GetBytes(message);
-                    byte[] bytes = encryption(buffer, aeskey, aesiv);
-                    stream.Write(bytes, 0, bytes.Length);
                 }
 
             }
             catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
+                Environment.Exit(0);
             }
 
 
@@ -73,23 +72,23 @@ namespace Server
                 while (true)
                 {
 
+
                     byte[] buffer = new byte[client.ReceiveBufferSize];
-                    //byte[] bytes = Encoding.UTF8.GetBytes(decryption(buffer));
                     int lenght = stream.Read(buffer, 0, buffer.Length);
                     byte[] data = new byte[lenght];
                     Array.Copy(buffer, data, lenght);
                     string message = decryption(data, aeskey, aesiv);
+                    Console.Write("server : " + message + "\n$");
 
-                    Console.Write("client : " + message + "\n$");
                 }
-}
+            }
             catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
+                Environment.Exit(0);
             }
-
         }
-        /*public static byte[] GenerateAESkey(int keysize)
+        public static byte[] GenerateAESkey(int keysize)
         {
             using (var aes = Aes.Create())
             {
@@ -105,7 +104,7 @@ namespace Server
                 aes.GenerateIV();
                 return aes.IV;
             }
-        }*/
+        }
         public static byte[] encryption(byte[] plaintext, byte[] key, byte[] iv)
         {
             using (Aes aes = Aes.Create())
@@ -150,30 +149,7 @@ namespace Server
 
 
         }
-        static void HandleAESKeyIV(TcpClient client)
-        {
-            try
-            {
-                // Buffer to store the received AES key and IV
-                byte[] keyBytes = new byte[32]; // Assuming AES key length is 32 bytes
-                byte[] ivBytes = new byte[16];  // Assuming IV length is 16 bytes
-
-                // Network stream to read data from the client
-                NetworkStream stream = client.GetStream();
-
-                // Read the AES key from the stream
-                int bytesRead = stream.Read(keyBytes, 0, keyBytes.Length);
-                Console.WriteLine("Received AES key from client: " + BitConverter.ToString(keyBytes));
-                bytesRead += stream.Read(ivBytes, 0, ivBytes.Length);
-                Console.WriteLine("Received IV from client: " + BitConverter.ToString(ivBytes));
-                aeskey = keyBytes;
-                aesiv = ivBytes;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Error handling AES key and IV: " + ex.Message);
-            }
-        }
 
     }
+    
 }
